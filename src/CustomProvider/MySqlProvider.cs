@@ -32,35 +32,19 @@ namespace MySqlCustomProvider
 
         public override void GetAttributes(DeploymentAddAttributeContext addContext)
         {
-            // The source path should only be an absolute physical path or a valid connection string                                   
+            // The source path should only be an absolute physical path or a valid connection string
             if (IsAbsolutePhysicalPath(this.Path))
             {
-                if (!BaseContext.IsDestinationObject)
+                if (!File.Exists(this.Path))
                 {
-                    if (!File.Exists(this.Path))
-                    {
-                        throw new DeploymentFatalException("File " + this.Path + " is not accessible");
-                    }
-                }
-                else
-                {
-                    //Explicitly throw a dummy exception to call "Add"
-                    throw new Exception();
+                    throw new DeploymentException("File " + this.Path + " is not accessible");
                 }
             }
             else
             {
-                if (!BaseContext.IsDestinationObject)
+                if (!EnsureMySqlConnection(this.Path))
                 {
-                    if (!EnsureMySqlConnection(this.Path))
-                    {
-                        throw new DeploymentFatalException("Database " + this.Path + " is not accessible");
-                    }
-                }
-                else
-                {
-                    //Explicitly throw a dummy exception to call "Add"
-                    throw new Exception();
+                    throw new DeploymentException("Database " + this.Path + " is not accessible");
                 }
             }
         }
@@ -101,14 +85,21 @@ namespace MySqlCustomProvider
 
             return _reader;
         }
-       
+
+        public override DeploymentObjectResolver GetObjectResolver()
+        {
+            return new DirPathObjectResolver();
+        }
+
         // Add is called by the destination object when performing a sync
         public override void Add(DeploymentObject source, bool whatIf)
         {
             if (whatIf)
             {
                 return;
-            }
+            }            
+
+            string MySqlTempFilePath = StreamToFile(source);
 
             // This handles syncing a script to a database
             if (IsAbsolutePhysicalPath(source.ProviderContext.Path))
@@ -131,6 +122,41 @@ namespace MySqlCustomProvider
                     SyncScriptToMySqlDatabase(MySqlTempFilePath, this.Path);
                 }
             }
+        }
+
+        private string StreamToFile(DeploymentObject source)
+        {
+            // create a temp file with binary writer handle as destination
+            string tempDirectory = System.IO.Path.GetTempPath();
+            System.IO.Directory.CreateDirectory(tempDirectory);
+
+            string tempFileName = tempDirectory + "\\temp.sql";
+
+            FileStream mysqlStreamDest = new FileStream(tempFileName, FileMode.Create, FileAccess.ReadWrite);
+
+            // Get the stream from the zip file
+            System.IO.Stream mysqlStreamSource = source.GetStream();
+
+            const int bufferSize = 32768;
+            byte[] buffer = new byte[bufferSize];
+            int actualBytesRead;
+
+            //re-serialize the source MSDeploy file into a temporary file
+            while ((actualBytesRead = mysqlStreamSource.Read(buffer, 0, bufferSize)) > 0)
+            {
+                try
+                {
+                    mysqlStreamDest.Write(buffer, 0, actualBytesRead);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(ex.Message);
+                }
+            }
+            mysqlStreamDest.Flush();
+            mysqlStreamDest.Close();
+
+            return (tempFileName);
         }
 
         // This method uses msdeploy APIs to sync a script to a database using dbMySql provider
@@ -249,7 +275,7 @@ namespace MySqlCustomProvider
             }
             catch (Exception)
             {
-                throw new DeploymentFatalException("Could not access " + connectionString);
+                throw new DeploymentException("Could not access " + connectionString);
             }
         }
 
@@ -332,10 +358,35 @@ namespace MySqlCustomProvider
         private string _mysqlTempFilePath;
         private string _mysqlDumpExePath;
         #endregion
-    }   
+    }
+
+    internal class DirPathObjectResolver : DeploymentObjectResolver
+    {
+        public override string GetAbsolutePath(DeploymentObject target)
+        {
+            Debug.Assert(target.KeyAttribute != null);
+            if (target.Parent != null && target.Parent.Name == "dirPath")
+            {
+                return Path.Combine(target.Parent.AbsolutePath, target.KeyAttribute.GetValue<string>());
+            }
+            else
+            {
+                return target.KeyAttribute.GetValue<string>();
+            }
+        }
+
+        public override string GetSummary(DeploymentObject deploymentObject)
+        {
+            return deploymentObject.KeyAttribute.GetValue<string>();
+        }
+    }
 
     public class MySqlDumpExecutablePath : DeploymentProviderSettingInfo
-    {        
+    {
+        public MySqlDumpExecutablePath()
+        {
+        }
+
         public override string Name
         {
             get
@@ -366,12 +417,12 @@ namespace MySqlCustomProvider
 
             if (!MySqlProvider.IsAbsolutePhysicalPath(mysqlDumpExePath))
             {
-                throw new DeploymentFatalException(mysqlDumpExePath + " is not a valid absolute physical path");
+                throw new DeploymentException(mysqlDumpExePath + " is not a valid absolute physical path");
             }
 
             if (!File.Exists(mysqlDumpExePath))
             {
-                throw new DeploymentFatalException(mysqlDumpExePath + " does not exist");
+                throw new DeploymentException(mysqlDumpExePath + " does not exist");
             }
 
             return mysqlDumpExePath;
