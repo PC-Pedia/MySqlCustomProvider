@@ -37,14 +37,14 @@ namespace MySqlCustomProvider
             {
                 if (!File.Exists(this.Path))
                 {
-                    throw new DeploymentException("File " + this.Path + " is not accessible");
+                    throw new DeploymentFatalException("File " + this.Path + " is not accessible");
                 }
             }
             else
             {
                 if (!EnsureMySqlConnection(this.Path))
                 {
-                    throw new DeploymentException("Database " + this.Path + " is not accessible");
+                    throw new DeploymentFatalException("Database " + this.Path + " is not accessible");
                 }
             }
         }
@@ -275,7 +275,7 @@ namespace MySqlCustomProvider
             }
             catch (Exception)
             {
-                throw new DeploymentException("Could not access " + connectionString);
+                throw new DeploymentFatalException("Could not access " + connectionString);
             }
         }
 
@@ -417,12 +417,12 @@ namespace MySqlCustomProvider
 
             if (!MySqlProvider.IsAbsolutePhysicalPath(mysqlDumpExePath))
             {
-                throw new DeploymentException(mysqlDumpExePath + " is not a valid absolute physical path");
+                throw new DeploymentFatalException(mysqlDumpExePath + " is not a valid absolute physical path");
             }
 
             if (!File.Exists(mysqlDumpExePath))
             {
-                throw new DeploymentException(mysqlDumpExePath + " does not exist");
+                throw new DeploymentFatalException(mysqlDumpExePath + " does not exist");
             }
 
             return mysqlDumpExePath;
